@@ -12,6 +12,14 @@ docker compose -f docker_compose.yml up --build
 
 2. Open API docs at `http://localhost:8090/docs`
 
+## Running API tests 
+
+Tests can be run using docker compose. 
+
+```
+docker compose -f docker_compose.yml run --rm test pytest tests/test_api.py --verbose
+```
+
 ## API Endpoints
 
 - POST /register — Register user  

@@ -69,7 +69,8 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 async def evaluate_patient(patient: PatientRecord, current_user: dict = Depends(get_current_user)):
     patient_id = await get_next_sequence("patient_id")
     patient_doc = patient.as_dict(patient_id)
-    await patients_collection.insert_one(patient_doc)
+    insert_result = await patients_collection.insert_one(patient_doc)
+    saved_doc = await patients_collection.find_one({"_id": insert_result.inserted_id}, {"_id": 0})
 
     event = {
         "patient_id": patient_id,
@@ -79,7 +80,7 @@ async def evaluate_patient(patient: PatientRecord, current_user: dict = Depends(
     }
     await redis_client.publish(REDIS_CHANNEL, json.dumps(event))
 
-    return patient_doc
+    return saved_doc
 
 @app.get(
     "/recommendation/{patient_id}",

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
-from typing import Optional, Dict
+from typing import Optional, Dict, ClassVar
 
 
 class UserCreate(BaseModel):
@@ -21,7 +21,7 @@ class PatientRecord(BaseModel):
     _bmi: float = PrivateAttr()
     _recommendation: Optional[str] = PrivateAttr()
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config: ClassVar = ConfigDict(validate_assignment=True)
 
     def __init__(self, **data):
         super().__init__(**data)

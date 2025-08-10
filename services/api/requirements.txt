@@ -6,3 +6,6 @@ redis==6.4.0
 python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 fastapi-security==0.5.0
+pytest==8.4.1
+pytest-asyncio==1.1.0
+httpx==0.28.1

@@ -41,3 +41,20 @@ services:
     depends_on:
       - redis
     command: ["python", "worker.py"]
+
+  test:
+    build:
+      context: ./
+      dockerfile: ./services/api/Dockerfile
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_CHANNEL=patient_events
+      - MONGO_URI=mongodb://mongo:27017
+      - MONGO_DB_NAME=clinic_db
+      - CACHE_TTL_SECONDS=360
+      - JWT_SECRET=super_secret_key_here
+    depends_on:
+      - mongo
+      - redis
+    command: ["pytest", "-v", "services/api/tests/"]
