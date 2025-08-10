@@ -30,6 +30,17 @@ docker compose -f docker_compose.yml run --rm test pytest tests/test_api.py --ve
 
 (All patient endpoints require Bearer JWT token.)
 
+## Notes 
+
+### Worker service
+This service is just a mockup of the actual service that will take care of 
+email, sms or any other asynchronous task to be executed. It currently just 
+logs the message received on the console using print. 
+
+### Security 
+No extensive development has been done on the security of the api such as password 
+strength etc. In a proper production level app this needs to be addressed. 
+
 ## License
 
 MIT
