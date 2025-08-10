@@ -1,12 +1,18 @@
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 from typing import Optional, Dict
-from datetime import datetime
+
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    username: str
+    message: str
 
 
 class PatientRecord(BaseModel):
-    # patient_id: int
-    # name: str
-    # surname: str
     age: int = Field(..., gt=0, description="Age must be a positive number")
     height: float = Field(..., gt=0, description="Height must be a positive number in meters")
     weight: float = Field(..., gt=0, description="Weight must be a positive number in kilograms")
@@ -16,6 +22,10 @@ class PatientRecord(BaseModel):
     _recommendation: Optional[str] = PrivateAttr()
 
     model_config = ConfigDict(validate_assignment=True)
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        self.model_post_init(None)
 
     def model_post_init(self, __context):
         self._bmi = round(self.weight / (self.height ** 2), 2)

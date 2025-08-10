@@ -1,30 +1,21 @@
-import os
 import json
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
-from motor.motor_asyncio import AsyncIOMotorClient
-from models.objects import PatientRecord
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordRequestForm
 from pymongo import ReturnDocument
-import redis.asyncio as aioredis
 
+from config import (
+    patients_collection, counters_collection, users_collection,
+    redis_client, ACCESS_TOKEN_EXPIRE_DELTA, REDIS_CHANNEL
+)
+from auth import (
+    authenticate_user, create_access_token, get_password_hash, get_current_user
+)
+from models.objects import PatientRecord, UserCreate, UserResponse
 
-app = FastAPI()
+app = FastAPI(title="Patient Health Data API", version="1.0")
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongo:27017")
-MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "clinic_db")
-
-client = AsyncIOMotorClient(MONGO_URI)
-db = client[MONGO_DB_NAME]
-patients_collection = db["patients"]
-counters_collection = db["counters"]
-
-REDIS_HOST = os.getenv("REDIS_HOST", "redis")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-REDIS_CHANNEL = os.getenv("REDIS_CHANNEL", "patient_events")
-redis_client = aioredis.from_url(f"redis://{REDIS_HOST}:{REDIS_PORT}", decode_responses=True)
-
-CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", 360))
-
+# ===== Helpers =====
 async def get_next_sequence(name: str) -> int:
     result = await counters_collection.find_one_and_update(
         {"_id": name},
@@ -34,47 +25,60 @@ async def get_next_sequence(name: str) -> int:
     )
     return result["sequence_value"]
 
+# ===== Security endpoints =====
+@app.post("/register", response_model=UserResponse, tags=["security"])
+async def register_user(user: UserCreate):
+    if await users_collection.find_one({"username": user.username}):
+        raise HTTPException(status_code=400, detail="Username already exists")
+    hashed_pw = get_password_hash(user.password)
+    await users_collection.insert_one({"username": user.username, "hashed_password": hashed_pw})
+    return UserResponse(username=user.username, message="User created successfully")
 
-@app.post("/evaluate",
-          response_model=PatientRecord,
-          summary="Evaluate patient and return clinical recommendation")
-async def evaluate_patient(patient: PatientRecord):
+@app.post("/token", tags=["security"])
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    token = create_access_token({"sub": user["username"]}, expires_delta=ACCESS_TOKEN_EXPIRE_DELTA)
+    return {"access_token": token, "token_type": "bearer"}
+
+# ===== Patient endpoints =====
+@app.post("/evaluate", tags=["patients"])
+async def evaluate_patient(patient: PatientRecord, current_user: dict = Depends(get_current_user)):
     patient_id = await get_next_sequence("patient_id")
     patient_doc = patient.as_dict(patient_id)
-    await patients_collection.insert_one(patient_doc)
+    insert_result = await patients_collection.insert_one(patient_doc)
+    saved_doc = await patients_collection.find_one({"_id": insert_result.inserted_id}, {"_id": 0})
 
-    # Generate a recommendation event
     event = {
         "patient_id": patient_id,
-        "recommendation_id": f"rec-{patient_id}",  # could be a UUID
+        "recommendation_id": f"rec-{patient_id}",
         "recommendation": patient_doc["recommendation"],
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
     await redis_client.publish(REDIS_CHANNEL, json.dumps(event))
 
-    return patient_doc
+    return saved_doc
 
-
-@app.get("/recommendation/{patient_id}", summary="Get stored recommendation by patient ID")
-async def get_recommendation(patient_id: int):
-    cache_key = f"recommendation:{patient_id}"
-
-    # Try to get from Redis cache
-    cached = await redis_client.get(cache_key)
+@app.get("/recommendation/{patient_id}", tags=["patients"])
+async def get_recommendation(patient_id: int, current_user: dict = Depends(get_current_user)):
+    cached = await redis_client.get(f"recommendation:{patient_id}")
     if cached:
         return json.loads(cached)
 
-    # If not cached, fetch from DB
-    doc = await patients_collection.find_one({"patient_id": patient_id})
+    doc = await patients_collection.find_one({"patient_id": patient_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Patient not found")
-
-    response = {
+    result = {
         "patient_id": doc["patient_id"],
         "recommendation": doc["recommendation"]
     }
+    await redis_client.setex(f"recommendation:{patient_id}", 3600, json.dumps(result))
+    return result
 
-    # Cache the response in Redis
-    await redis_client.set(cache_key, json.dumps(response), ex=CACHE_TTL_SECONDS)
-
-    return response
+@app.get("/patients", tags=["patients"])
+async def list_patients(current_user: dict = Depends(get_current_user)):
+    patients = []
+    async for doc in patients_collection.find({}, {"_id": 0}):
+        patients.append(doc)
+    return patients

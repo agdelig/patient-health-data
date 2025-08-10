@@ -3,3 +3,6 @@ fastapi[standard]==0.116.1
 uvicorn==0.18.2
 motor==3.7.1
 redis==6.4.0
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+fastapi-security==0.5.0
