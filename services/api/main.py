@@ -26,7 +26,15 @@ async def get_next_sequence(name: str) -> int:
     return result["sequence_value"]
 
 # ===== Security endpoints =====
-@app.post("/register", response_model=UserResponse, tags=["security"])
+@app.post(
+    "/register",
+    response_model=UserResponse,
+    tags=["security"],
+    responses={
+        400: {"description": "Username already exists"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def register_user(user: UserCreate):
     if await users_collection.find_one({"username": user.username}):
         raise HTTPException(status_code=400, detail="Username already exists")
@@ -34,7 +42,14 @@ async def register_user(user: UserCreate):
     await users_collection.insert_one({"username": user.username, "hashed_password": hashed_pw})
     return UserResponse(username=user.username, message="User created successfully")
 
-@app.post("/token", tags=["security"])
+@app.post(
+    "/token",
+    tags=["security"],
+    responses={
+        401: {"description": "Incorrect username or password"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user = await authenticate_user(form_data.username, form_data.password)
     if not user:
@@ -43,12 +58,18 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": token, "token_type": "bearer"}
 
 # ===== Patient endpoints =====
-@app.post("/evaluate", tags=["patients"])
+@app.post(
+    "/evaluate",
+    tags=["patients"],
+    responses={
+        201: {"description": "Recommendation created successfully"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def evaluate_patient(patient: PatientRecord, current_user: dict = Depends(get_current_user)):
     patient_id = await get_next_sequence("patient_id")
     patient_doc = patient.as_dict(patient_id)
-    insert_result = await patients_collection.insert_one(patient_doc)
-    saved_doc = await patients_collection.find_one({"_id": insert_result.inserted_id}, {"_id": 0})
+    await patients_collection.insert_one(patient_doc)
 
     event = {
         "patient_id": patient_id,
@@ -58,9 +79,17 @@ async def evaluate_patient(patient: PatientRecord, current_user: dict = Depends(
     }
     await redis_client.publish(REDIS_CHANNEL, json.dumps(event))
 
-    return saved_doc
+    return patient_doc
 
-@app.get("/recommendation/{patient_id}", tags=["patients"])
+@app.get(
+    "/recommendation/{patient_id}",
+    tags=["patients"],
+    responses={
+        200: {"description": "Recommendation retrieved successfully"},
+        404: {"description": "Patient not found"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def get_recommendation(patient_id: int, current_user: dict = Depends(get_current_user)):
     cached = await redis_client.get(f"recommendation:{patient_id}")
     if cached:
@@ -76,7 +105,14 @@ async def get_recommendation(patient_id: int, current_user: dict = Depends(get_c
     await redis_client.setex(f"recommendation:{patient_id}", 3600, json.dumps(result))
     return result
 
-@app.get("/patients", tags=["patients"])
+@app.get(
+    "/patients",
+    tags=["patients"],
+    responses={
+        200: {"description": "List of patients retrieved successfully"},
+        500: {"description": "Internal Server Error"}
+    }
+)
 async def list_patients(current_user: dict = Depends(get_current_user)):
     patients = []
     async for doc in patients_collection.find({}, {"_id": 0}):

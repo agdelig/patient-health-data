@@ -24,6 +24,7 @@ services:
       - MONGO_URI=mongodb://mongo:27017
       - MONGO_DB_NAME=clinic_db
       - CACHE_TTL_SECONDS=360
+      - JWT_SECRET=super_secret_key_here
     depends_on:
       - mongo
       - redis
